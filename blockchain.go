@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"log"
 	"os"
@@ -29,8 +28,7 @@ func DBExists(path string) bool {
 func InitBlockchain(address, nodeId string) *Blockchain {
 	path := fmt.Sprintf("./tmp/blocks_%s", nodeId)
 	if DBExists(path) {
-		fmt.Println("Blockchain already exists")
-		os.Exit(1)
+		log.Panic("blockchain already exists")
 	}
 
 	var lastHash []byte
@@ -38,8 +36,7 @@ func InitBlockchain(address, nodeId string) *Blockchain {
 	opts := badger.DefaultOptions(path)
 	db, err := badger.Open(opts)
 	if err != nil {
-		fmt.Println("Open badger DB error:", err)
-		os.Exit(1)
+		log.Panic(err)
 	}
 
 	err = db.Update(func(txn *badger.Txn) error {
@@ -71,8 +68,7 @@ func InitBlockchain(address, nodeId string) *Blockchain {
 func ContinueBlockchain(nodeId string) *Blockchain {
 	path := fmt.Sprintf(dbPath, nodeId)
 	if !DBExists(path) {
-		fmt.Println("No blockchain found. Create one first.")
-		os.Exit(1)
+		log.Panic("blockchain not found")
 	}
 
 	var lastHash []byte
@@ -160,20 +156,18 @@ func NewCoinbaseTX(to, data string) *Transaction {
 		data = fmt.Sprintf("Reward to '%s'", to)
 	}
 
-	txin := TransactionInput{
-		PrevTxID:     []byte{},
-		PrevOutIndex: -1,
-		Signature:    nil,
-		PubKey:       []byte(data),
+	txin := TxIn{
+		PrevTxID:  []byte{},
+		Vout:      0xffffffff,
+		ScriptSig: []byte(data),
+		Sequence:  0xffffffff,
 	}
 
-	txout := TransactionOutput{
-		Value:      10,
-		PubKeyHash: []byte(to),
+	txout := TxOut{
+		Value:        10,
+		ScriptPubKey: []byte(to),
 	}
 
-	tx := Transaction{1, nil, []TransactionInput{txin}, []TransactionOutput{txout}, 0, 0}
-	hash := sha256.Sum256([]byte("coinbase_tx_id_placeholder"))
-	tx.ID = hash[:]
+	tx := Transaction{Version: 1, Vin: []TxIn{txin}, Vout: []TxOut{txout}, LockTime: 0}
 	return &tx
 }

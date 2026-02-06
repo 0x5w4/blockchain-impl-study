@@ -120,7 +120,7 @@ func (cli *CLI) printChain() {
 
 		for _, tx := range block.Transactions {
 
-			fmt.Printf("Tx: %x\n", tx.ID)
+			fmt.Printf("Tx: %x\n", tx.Serialize())
 		}
 
 		pow := NewProofOfWork(&block.Header)

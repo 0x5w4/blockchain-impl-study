@@ -79,7 +79,7 @@ func (b *Block) BuildMerkleRoot() []byte {
 	var txIDs [][]byte
 
 	for _, tx := range b.Transactions {
-		txIDs = append(txIDs, tx.ID)
+		txIDs = append(txIDs, tx.Serialize())
 	}
 
 	return BuildMerkleRoot(txIDs)

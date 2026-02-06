@@ -7,13 +7,23 @@ import (
 	"io"
 )
 
+type TxIn struct {
+	PrevTxID  []byte
+	Vout      uint32
+	ScriptSig []byte
+	Sequence  uint32
+}
+
+type TxOut struct {
+	Value        int64
+	ScriptPubKey []byte
+}
+
 type Transaction struct {
 	Version  int32
-	ID       []byte
-	Vin      []TransactionInput
-	Vout     []TransactionOutput
+	Vin      []TxIn
+	Vout     []TxOut
 	LockTime uint32
-	Fee      int64
 }
 
 func (tx *Transaction) Serialize() []byte {
@@ -25,13 +35,20 @@ func (tx *Transaction) Serialize() []byte {
 
 	buf = appendVarInt(buf, uint64(len(tx.Vin)))
 	for _, vin := range tx.Vin {
-		buf = append(buf, vin.PrevTxID...)
+		// PrevTxID should be 32 bytes on the wire
+		if len(vin.PrevTxID) == 0 {
+			buf = append(buf, make([]byte, 32)...)
+		} else {
+			buf = append(buf, vin.PrevTxID...)
+		}
 
-		binary.LittleEndian.PutUint32(tmp4, uint32(vin.PrevOutIndex))
+		binary.LittleEndian.PutUint32(tmp4, vin.Vout)
 		buf = append(buf, tmp4...)
 
-		buf = appendVarBytes(buf, vin.Signature)
-		buf = appendVarBytes(buf, vin.PubKey)
+		buf = appendVarBytes(buf, vin.ScriptSig)
+
+		binary.LittleEndian.PutUint32(tmp4, vin.Sequence)
+		buf = append(buf, tmp4...)
 	}
 
 	buf = appendVarInt(buf, uint64(len(tx.Vout)))
@@ -40,7 +57,7 @@ func (tx *Transaction) Serialize() []byte {
 		binary.LittleEndian.PutUint64(tmp8, uint64(vout.Value))
 		buf = append(buf, tmp8...)
 
-		buf = appendVarBytes(buf, vout.PubKeyHash)
+		buf = appendVarBytes(buf, vout.ScriptPubKey)
 	}
 
 	binary.LittleEndian.PutUint32(tmp4, tx.LockTime)
@@ -55,61 +72,19 @@ func (tx *Transaction) CalculateFee(prevTXs map[string]Transaction) int64 {
 
 	for _, vin := range tx.Vin {
 		prevTx := prevTXs[hex.EncodeToString(vin.PrevTxID)]
-		inputSum += int64(prevTx.Vout[vin.PrevOutIndex].Value)
+		inputSum += prevTx.Vout[vin.Vout].Value
 	}
 
 	for _, vout := range tx.Vout {
-		outputSum += int64(vout.Value)
+		outputSum += vout.Value
 	}
 
 	return inputSum - outputSum
 }
 
 func DeserializeTransaction(data []byte) Transaction {
-	var tx Transaction
 	r := bytes.NewReader(data)
-
-	binary.Read(r, binary.LittleEndian, &tx.Version)
-
-	vinCount, _ := decodeVarInt(r)
-	for i := 0; i < int(vinCount); i++ {
-		var vin TransactionInput
-
-		vin.PrevTxID = make([]byte, 32)
-		io.ReadFull(r, vin.PrevTxID)
-
-		var vout uint32
-		binary.Read(r, binary.LittleEndian, &vout)
-		vin.PrevOutIndex = int(vout)
-
-		sigLen, _ := decodeVarInt(r)
-		vin.Signature = make([]byte, sigLen)
-		io.ReadFull(r, vin.Signature)
-
-		pubLen, _ := decodeVarInt(r)
-		vin.PubKey = make([]byte, pubLen)
-		io.ReadFull(r, vin.PubKey)
-
-		tx.Vin = append(tx.Vin, vin)
-	}
-
-	voutCount, _ := decodeVarInt(r)
-	for i := 0; i < int(voutCount); i++ {
-		var vout TransactionOutput
-		var val uint64
-		binary.Read(r, binary.LittleEndian, &val)
-		vout.Value = int(val)
-
-		pubKeyHashLen, _ := decodeVarInt(r)
-		vout.PubKeyHash = make([]byte, pubKeyHashLen)
-		io.ReadFull(r, vout.PubKeyHash)
-
-		tx.Vout = append(tx.Vout, vout)
-	}
-
-	binary.Read(r, binary.LittleEndian, &tx.LockTime)
-
-	return tx
+	return DeserializeTransactionFromReader(r)
 }
 
 func DeserializeBlock(data []byte) *Block {
@@ -121,7 +96,6 @@ func DeserializeBlock(data []byte) *Block {
 
 	var transactions []*Transaction
 	for i := 0; i < int(txCount); i++ {
-
 		tx := DeserializeTransactionFromReader(r)
 		transactions = append(transactions, &tx)
 	}
@@ -140,35 +114,29 @@ func DeserializeTransactionFromReader(r *bytes.Reader) Transaction {
 
 	vinCount, _ := decodeVarInt(r)
 	for i := 0; i < int(vinCount); i++ {
-		var vin TransactionInput
+		var vin TxIn
 		vin.PrevTxID = make([]byte, 32)
 		io.ReadFull(r, vin.PrevTxID)
 
-		var vout uint32
-		binary.Read(r, binary.LittleEndian, &vout)
-		vin.PrevOutIndex = int(vout)
+		binary.Read(r, binary.LittleEndian, &vin.Vout)
 
-		sigLen, _ := decodeVarInt(r)
-		vin.Signature = make([]byte, sigLen)
-		io.ReadFull(r, vin.Signature)
+		scriptLen, _ := decodeVarInt(r)
+		vin.ScriptSig = make([]byte, scriptLen)
+		io.ReadFull(r, vin.ScriptSig)
 
-		pubLen, _ := decodeVarInt(r)
-		vin.PubKey = make([]byte, pubLen)
-		io.ReadFull(r, vin.PubKey)
+		binary.Read(r, binary.LittleEndian, &vin.Sequence)
 
 		tx.Vin = append(tx.Vin, vin)
 	}
 
 	voutCount, _ := decodeVarInt(r)
 	for i := 0; i < int(voutCount); i++ {
-		var vout TransactionOutput
-		var val uint64
-		binary.Read(r, binary.LittleEndian, &val)
-		vout.Value = int(val)
+		var vout TxOut
+		binary.Read(r, binary.LittleEndian, &vout.Value)
 
-		pubKeyHashLen, _ := decodeVarInt(r)
-		vout.PubKeyHash = make([]byte, pubKeyHashLen)
-		io.ReadFull(r, vout.PubKeyHash)
+		scriptLen, _ := decodeVarInt(r)
+		vout.ScriptPubKey = make([]byte, scriptLen)
+		io.ReadFull(r, vout.ScriptPubKey)
 
 		tx.Vout = append(tx.Vout, vout)
 	}

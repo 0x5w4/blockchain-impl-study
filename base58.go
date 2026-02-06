@@ -7,6 +7,16 @@ import (
 )
 
 var b58Alphabet = []byte("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+var b58Lookup [256]int8
+
+func init() {
+	for i := range b58Lookup {
+		b58Lookup[i] = -1
+	}
+	for i, b := range b58Alphabet {
+		b58Lookup[b] = int8(i)
+	}
+}
 
 func Base58Encode(input []byte) []byte {
 	var result []byte
@@ -21,7 +31,6 @@ func Base58Encode(input []byte) []byte {
 		result = append(result, b58Alphabet[mod.Int64()])
 	}
 
-	// handle leading zero bytes
 	for _, b := range input {
 		if b == 0x00 {
 			result = append(result, b58Alphabet[0])
@@ -30,29 +39,29 @@ func Base58Encode(input []byte) []byte {
 		}
 	}
 
-	// reverse result
 	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
 		result[i], result[j] = result[j], result[i]
 	}
 
 	return result
 }
+
 func Base58Decode(input []byte) []byte {
 	result := big.NewInt(0)
 	base := big.NewInt(int64(len(b58Alphabet)))
 
 	for _, b := range input {
-		charIndex := bytes.IndexByte(b58Alphabet, b)
-		if charIndex < 0 {
+		charIndex := b58Lookup[b]
+		if charIndex == -1 {
 			log.Panic("invalid Base58 character")
 		}
+
 		result.Mul(result, base)
 		result.Add(result, big.NewInt(int64(charIndex)))
 	}
 
 	decoded := result.Bytes()
 
-	// restore leading zero bytes
 	zeroCount := 0
 	for _, b := range input {
 		if b == b58Alphabet[0] {
